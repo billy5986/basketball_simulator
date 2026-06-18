@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>2D投籃模擬器</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome 圖標 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: radial-gradient(circle, #1a1c29 0%, #0c0d14 100%);
+            overflow: hidden;
+            touch-action: none; /* 防止觸控螢幕的預設滑動手勢 */
+        }
+        canvas {
+            display: block;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            /* 優化 Canvas 渲染 */
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+<body class="h-[100dvh] w-screen flex flex-col items-center justify-between p-2 md:p-4 text-white">
+
+    <!-- 頂部資訊列 (RWD 自適應) -->
+    <div class="w-full max-w-4xl flex flex-row justify-between items-center bg-gray-900/80 backdrop-blur-md px-3 sm:px-4 py-2 sm:py-3 rounded-2xl border border-gray-800 shadow-lg z-10">
+        <div class="flex items-center gap-1 sm:gap-2">
+            <span class="text-orange-500 text-xl sm:text-2xl md:text-3xl"><i class="fa-solid fa-basketball"></i></span>
+            <h1 class="text-base sm:text-lg md:text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-300 hidden min-[380px]:block">2D投籃模擬器</h1>
+        </div>
+        
+        <!-- 分數與時間 -->
+        <div class="flex items-center gap-3 sm:gap-6 md:gap-8">
+            <div class="text-center">
+                <p class="text-[10px] sm:text-xs text-gray-400 uppercase font-bold tracking-widest">分數</p>
+                <p id="score-display" class="text-lg sm:text-xl md:text-2xl font-black text-amber-400">0</p>
+            </div>
+            <div id="timer-container" class="text-center">
+                <p id="timer-label" class="text-[10px] sm:text-xs text-gray-400 uppercase font-bold tracking-widest">時間</p>
+                <p id="timer-display" class="text-lg sm:text-xl md:text-2xl font-black text-emerald-400">60s</p>
+            </div>
+            <div class="text-center">
+                <p class="text-[10px] sm:text-xs text-gray-400 uppercase font-bold tracking-widest">最高紀錄</p>
+                <p id="high-score" class="text-lg sm:text-xl md:text-2xl font-black text-orange-500">0</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 遊戲主畫面（Canvas 容器） -->
+    <div class="relative flex-1 w-full max-w-4xl my-2 flex items-center justify-center">
+        <!-- Canvas 畫布 -->
+        <div class="relative w-full h-full bg-slate-950 rounded-2xl sm:rounded-3xl overflow-hidden border-2 sm:border-4 border-gray-800 shadow-2xl">
+            <canvas id="gameCanvas" class="w-full h-full"></canvas>
+            
+            <!-- 投球力道指示器 -->
+            <div id="drag-hint" class="absolute bottom-6 sm:bottom-10 left-1/2 transform -translate-x-1/2 pointer-events-none text-center animate-pulse bg-black/60 px-3 py-2 sm:px-4 sm:py-2 rounded-full border border-orange-500/30 whitespace-nowrap">
+                <p class="text-[11px] sm:text-sm text-orange-400 font-bold">
+                    <i class="fa-solid fa-hand-pointer mr-1"></i> 點擊畫面往反方向滑動即可蓄力！
+                </p>
+            </div>
+
+            <!-- 連續進球特效提示 -->
+            <div id="combo-alert" class="absolute top-1/4 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center hidden scale-0 transition-transform duration-300 w-full px-4">
+                <h2 id="combo-text" class="text-3xl sm:text-4xl md:text-6xl font-black italic tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-orange-500 to-yellow-400 drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)]">
+                    SWISH! 空心球
+                </h2>
+                <p id="combo-subtext" class="text-xs sm:text-sm md:text-lg text-yellow-300 font-bold mt-1 drop-shadow"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部控制與模式選擇 (RWD 自適應排列) -->
+    <div class="w-full max-w-4xl flex flex-col md:flex-row gap-2 justify-between items-center bg-gray-900/80 backdrop-blur-md px-3 sm:px-4 py-2 sm:py-3 rounded-2xl border border-gray-800 shadow-lg z-10">
+        <!-- 模式選擇：手機版使用 2x2 網格，電腦版水平排列 -->
+        <div class="grid grid-cols-2 md:flex gap-2 w-full md:w-auto">
+            <button id="btn-mode-classic" class="w-full md:w-auto px-3 py-2 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition duration-200 bg-orange-500 text-white shadow-lg shadow-orange-500/20">
+                經典限時
+            </button>
+            <button id="btn-mode-distance" class="w-full md:w-auto px-3 py-2 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition duration-200 bg-gray-800 text-gray-300 hover:bg-gray-700">
+                距離挑戰
+            </button>
+            <button id="btn-mode-practice" class="w-full md:w-auto px-3 py-2 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition duration-200 bg-gray-800 text-gray-300 hover:bg-gray-700">
+                自由練習
+            </button>
+            <button id="btn-mode-hard" class="w-full md:w-auto px-3 py-2 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition duration-200 bg-gray-800 text-gray-300 hover:bg-gray-700">
+                <i class="fa-solid fa-fire text-red-500 mr-1"></i> 高難度
+            </button>
+        </div>
+
+        <!-- 功能按鈕 -->
+        <div class="flex items-center justify-between md:justify-end gap-3 w-full md:w-auto mt-1 md:mt-0">
+            <!-- 靜音控制 -->
+            <button id="btn-mute" class="flex-shrink-0 p-2 bg-gray-800 hover:bg-gray-700 rounded-xl text-gray-300 transition duration-200 w-10 h-10 flex items-center justify-center">
+                <i id="mute-icon" class="fa-solid fa-volume-high"></i>
+            </button>
+            <!-- 重新開始 -->
+            <button id="btn-restart" class="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl text-sm font-bold transition duration-200 shadow-lg shadow-orange-500/10">
+                <i class="fa-solid fa-rotate-right"></i> 重新開始
+            </button>
+        </div>
+    </div>
+
+    <!-- 遊戲結束/開始 覆蓋畫面 -->
+    <div id="modal-screen" class="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+        <div class="bg-gray-900 border-2 border-orange-500/50 p-6 md:p-8 rounded-3xl max-w-md w-full text-center shadow-2xl relative overflow-hidden">
+            <!-- 背景發光特效 -->
+            <div class="absolute -top-10 -left-10 w-40 h-40 bg-orange-500/10 rounded-full blur-3xl"></div>
+            <div class="absolute -bottom-10 -right-10 w-40 h-40 bg-amber-500/10 rounded-full blur-3xl"></div>
+
+            <div class="relative z-10">
+                <span class="text-orange-500 text-6xl block mb-4"><i class="fa-solid fa-basketball-ball animate-pulse"></i></span>
+                <h2 id="modal-title" class="text-2xl sm:text-3xl font-black text-white mb-2">2D投籃模擬器</h2>
+                <p id="modal-desc" class="text-gray-400 text-xs sm:text-sm mb-6">全螢幕蓄力版！在畫面【任意位置】點擊並往反方向拉動即可投籃，無死角完美操控，且軌跡線保證精準落地！</p>
+                
+                <div id="game-results" class="hidden mb-6 bg-gray-950 p-4 rounded-2xl border border-gray-800">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="text-center border-r border-gray-800">
+                            <p class="text-xs text-gray-500">本次得分</p>
+                            <p id="result-score" class="text-3xl font-black text-amber-400">0</p>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-xs text-gray-500">空心球數</p>
+                            <p id="result-swish" class="text-3xl font-black text-teal-400">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="btn-start" class="w-full py-3 sm:py-4 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black rounded-2xl shadow-lg shadow-orange-500/30 transition duration-200 transform active:scale-95 text-base sm:text-lg">
+                    開始投籃！
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Web Audio API 聲效合成系統 -->
+    <script>
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            playBounce() {
+                if (this.muted || !this.ctx) return;
+                this.init();
+                
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc.frequency.setValueAtTime(120, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.15);
+                
+                gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.15);
+            }
+
+            playRim() {
+                if (this.muted || !this.ctx) return;
+                this.init();
+                
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(330, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(220, this.ctx.currentTime + 0.1);
+                
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.2);
+            }
+
+            playSwish() {
+                if (this.muted || !this.ctx) return;
+                this.init();
+                
+                const bufferSize = this.ctx.sampleRate * 0.25;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+                
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(1000, this.ctx.currentTime);
+                filter.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.25);
+                
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.6, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
+                
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                noise.start();
+            }
+
+            playBackboard() {
+                if (this.muted || !this.ctx) return;
+                this.init();
+                
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(90, this.ctx.currentTime);
+                osc.frequency.linearRampToValueAtTime(60, this.ctx.currentTime + 0.25);
+                
+                gain.gain.setValueAtTime(0.7, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.25);
+            }
+
+            playScore() {
+                if (this.muted || !this.ctx) return;
+                this.init();
+                
+                const osc1 = this.ctx.createOscillator();
+                const osc2 = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc1.frequency.setValueAtTime(523.25, this.ctx.currentTime);
+                osc1.frequency.setValueAtTime(659.25, this.ctx.currentTime + 0.1);
+                
+                osc2.frequency.setValueAtTime(392.00, this.ctx.currentTime);
+                osc2.frequency.setValueAtTime(523.25, this.ctx.currentTime + 0.1);
+                
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+                
+                osc1.start();
+                osc2.start();
+                osc1.stop(this.ctx.currentTime + 0.3);
+                osc2.stop(this.ctx.currentTime + 0.3);
+            }
+        }
+
+        const sfx = new SoundFX();
+    </script>
+
+    <!-- 遊戲物理與渲染引擎 -->
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 遊戲狀態與變數
+        let gameState = 'START'; // START, PLAYING, WAITING_END, GAMEOVER
+        let gameMode = 'classic'; // classic, distance, practice, hard
+        let score = 0;
+        let swishCount = 0;
+        let highScore = parseInt(localStorage.getItem('bball_high_score') || '0');
+        let timeLeft = 60;
+        let timerInterval = null;
+        let lastTime = 0;
+
+        // --- RWD 邏輯視窗參數 ---
+        // 透過固定的邏輯座標系，確保所有物理演算法在不同尺寸的設備上都能表現一致
+        let logicW = 1000;
+        let logicH = 750;
+        let scaleX = 1;
+        let scaleY = 1;
+
+        // 更新高分顯示
+        document.getElementById('high-score').innerText = highScore;
+
+        // 物理常數 (統一使用邏輯單位)
+        const GRAVITY = 0.35;        
+        const BOUNCE_DAMPING = 0.65; 
+        const NET_DAMPING = 0.2;     
+
+        // 全螢幕虛擬搖桿輸入狀態
+        let inputState = {
+            isDragging: false,
+            startX: 0,
+            startY: 0,
+            currentX: 0,
+            currentY: 0
+        };
+
+        // 遊戲實體
+        let ball = {
+            x: 150,
+            y: 500,
+            vx: 0,
+            vy: 0,
+            radius: 22,
+            rotation: 0,
+            isDragging: false,
+            isThrown: false,
+            trail: [], 
+            wasAboveRim: false,
+            scoreCooldown: false,
+            isStopped: true,
+            hitRim: false,
+            hitBackboard: false 
+        };
+
+        let launcher = { x: 150, y: 500 };
+
+        let hoop = {
+            x: 0, y: 0,        
+            width: 80,   
+            rimLeftX: 0, rimRightX: 0,
+            boardX: 0, boardY: 0,   
+            boardH: 120, boardW: 10,  
+            netY: 0, rimRadius: 5 
+        };
+
+        let particles = [];
+        let netNodes = [];
+
+        // RWD 尺寸初始化核心
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            const cssW = container.clientWidth;
+            const cssH = container.clientHeight;
+            
+            // 支援 Retina 螢幕，防像素模糊
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = cssW * dpr;
+            canvas.height = cssH * dpr;
+            
+            // 決定遊戲邏輯座標系的解析度，確保橫屏與直屏的手感一致
+            const isPortrait = cssH > cssW;
+            if (isPortrait) {
+                logicW = 800; // 直式螢幕時，使用較窄的寬度基準，讓球看起來適中
+                logicH = logicW * (cssH / cssW);
+            } else {
+                logicH = 800; // 橫式螢幕時，使用固定的高度基準
+                logicW = logicH * (cssW / cssH);
+            }
+
+            // 計算真實畫布與邏輯座標系的縮放比例
+            scaleX = canvas.width / logicW;
+            scaleY = canvas.height / logicH;
+            
+            setupHoopLayout();
+            
+            if (ball.isStopped && !ball.isDragging && !ball.isThrown) {
+                resetToDefaultPosition();
+            }
+        }
+
+        // 配置籃板與籃框位置 (基於邏輯座標)
+        function setupHoopLayout() {
+            // 動態依照畫面寬度微調物件大小比例，使 RWD 畫面更完美
+            const sizeScale = Math.min(1.5, Math.max(0.8, logicW / 1000));
+            ball.radius = 22 * sizeScale;
+            hoop.width = ball.radius * 3.6;
+            hoop.boardH = hoop.width * 1.5;
+            hoop.boardW = Math.max(6, hoop.width * 0.12);
+            hoop.rimRadius = ball.radius * 0.25;
+
+            hoop.boardX = logicW - (60 * sizeScale);
+            hoop.boardY = logicH * 0.25; // 高度適應
+            
+            hoop.rimRightX = hoop.boardX - hoop.boardW;
+            hoop.rimLeftX = hoop.rimRightX - hoop.width;
+            hoop.x = (hoop.rimLeftX + hoop.rimRightX) / 2;
+            hoop.y = hoop.boardY + hoop.boardH * 0.65;
+            hoop.netY = hoop.y + (45 * sizeScale);
+
+            netNodes = [];
+            const segments = 5;
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const x = hoop.rimLeftX + (hoop.rimRightX - hoop.rimLeftX) * t;
+                netNodes.push({
+                    x: x, y: hoop.y, ox: x, oy: hoop.y, vx: 0, vy: 0
+                });
+            }
+        }
+
+        function resetToDefaultPosition() {
+            ball.vx = 0;
+            ball.vy = 0;
+            ball.isThrown = false;
+            ball.isDragging = false;
+            ball.trail = [];
+            ball.wasAboveRim = false;
+            ball.scoreCooldown = false;
+            ball.isStopped = true;
+            ball.hitRim = false;
+            ball.hitBackboard = false;
+            ball.rotation = 0;
+
+            if (gameMode === 'distance') {
+                launcher.x = logicW * (0.05 + Math.random() * 0.65);
+                launcher.y = logicH * (0.45 + Math.random() * 0.4);
+            } else if (gameMode === 'hard') {
+                launcher.x = logicW * (0.15 + Math.random() * 0.35);
+                launcher.y = logicH * (0.65 + Math.random() * 0.2);
+            } else {
+                // 依據直式或橫式畫面微調預設發球位置
+                launcher.x = logicW * (logicW < logicH ? 0.25 : 0.2);
+                launcher.y = logicH * 0.75;
+            }
+
+            ball.x = launcher.x;
+            ball.y = launcher.y;
+        }
+
+        function updateLauncherToBall() {
+            launcher.x = ball.x;
+            launcher.y = ball.y;
+        }
+
+        function updateNet() {
+            netNodes.forEach((node, i) => {
+                if (i === 0 || i === netNodes.length - 1) return;
+
+                const k = 0.15; 
+                const ax = (node.ox - node.x) * k;
+                const ay = (node.oy - node.y) * k;
+
+                node.vx += ax;
+                node.vy += ay;
+                
+                node.vx *= 0.85;
+                node.vy *= 0.85;
+
+                node.x += node.vx;
+                node.y += node.vy;
+
+                if (ball.isThrown) {
+                    const dx = node.x - ball.x;
+                    const dy = node.y - ball.y;
+                    const dist = Math.hypot(dx, dy);
+                    const minDist = ball.radius + 5;
+                    if (dist < minDist) {
+                        const angle = Math.atan2(dy, dx);
+                        const force = (minDist - dist) * 0.6;
+                        node.vx += Math.cos(angle) * force;
+                        node.vy += Math.sin(angle) * force + 1; 
+                        
+                        ball.vx *= (1 - NET_DAMPING * 0.05);
+                        ball.vy *= (1 - NET_DAMPING * 0.05);
+                    }
+                }
+            });
+        }
+
+        function createExplosion(x, y, color, count = 20, isStar = false) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 1 + Math.random() * 6;
+                particles.push({
+                    x: x, y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed - (isStar ? 2 : 0),
+                    radius: (isStar ? 3 + Math.random() * 4 : 2 + Math.random() * 3),
+                    color: color, alpha: 1, decay: 0.02 + Math.random() * 0.02,
+                    isStar: isStar, rotation: Math.random() * Math.PI, rotSpeed: (Math.random() - 0.5) * 0.1
+                });
+            }
+        }
+
+        function updateAndDrawParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= p.decay;
+
+                if (p.isStar) {
+                    p.rotation += p.rotSpeed;
+                    p.vy += 0.1; 
+                }
+
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+
+                if (p.isStar) {
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.rotation);
+                    ctx.beginPath();
+                    for (let j = 0; j < 5; j++) {
+                        ctx.lineTo(Math.cos((18 + j * 72) * Math.PI / 180) * p.radius,
+                                   Math.sin((18 + j * 72) * Math.PI / 180) * p.radius);
+                        ctx.lineTo(Math.cos((54 + j * 72) * Math.PI / 180) * (p.radius / 2),
+                                   Math.sin((54 + j * 72) * Math.PI / 180) * (p.radius / 2));
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        // 統一發射物理演算函數 (支援 RWD 動態長度)
+        function calculateLaunchParams() {
+            const dx = inputState.startX - inputState.currentX;
+            const dy = inputState.startY - inputState.currentY;
+            const dragDist = Math.hypot(dx, dy);
+            
+            // 動態最大力量距離，確保手機等窄版螢幕也能順利投射到對角線
+            const maxPowerDist = logicW * 0.35; 
+            const finalDist = Math.min(dragDist, maxPowerDist);
+            
+            // 將力量歸一化後賦予基準速度，確保不同寬度的螢幕投射手感一致
+            const powerRatio = finalDist / maxPowerDist;
+            const maxSpeed = logicW * 0.028; 
+            const speed = powerRatio * maxSpeed;
+            const angle = Math.atan2(dy, dx);
+            
+            return {
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                dist: finalDist
+            };
+        }
+
+        function drawTrajectory() {
+            if (!ball.isDragging || gameMode === 'hard') return;
+
+            const params = calculateLaunchParams();
+            let tempX = launcher.x; 
+            let tempY = launcher.y; 
+            let tempVx = params.vx;
+            let tempVy = params.vy;
+
+            ctx.save();
+            ctx.strokeStyle = 'rgba(249, 115, 22, 0.7)';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([6, 6]);
+            ctx.beginPath();
+            ctx.moveTo(tempX, tempY);
+
+            for (let i = 0; i < 600; i++) {
+                tempVy += GRAVITY;
+                tempX += tempVx;
+                tempY += tempVy;
+                
+                ctx.lineTo(tempX, tempY);
+                if (tempY > logicH - 40) {
+                    break;
+                }
+            }
+            ctx.stroke();
+            ctx.restore();
+
+            ctx.beginPath();
+            ctx.arc(launcher.x, launcher.y, params.dist * 0.5, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(245, 158, 11, ${0.15 + (params.dist / (logicW*0.35)) * 0.45})`;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        }
+
+        function checkSegmentCollision(x1, y1, x2, y2, isBoard = false) {
+            const A = ball.x - x1;
+            const B = ball.y - y1;
+            const C = x2 - x1;
+            const D = y2 - y1;
+
+            const dot = A * C + B * D;
+            const len_sq = C * C + D * D;
+            let param = -1;
+            if (len_sq !== 0) param = dot / len_sq;
+
+            let xx, yy;
+
+            if (param < 0) {
+                xx = x1; yy = y1;
+            } else if (param > 1) {
+                xx = x2; yy = y2;
+            } else {
+                xx = x1 + param * C; yy = y1 + param * D;
+            }
+
+            const dx = ball.x - xx;
+            const dy = ball.y - yy;
+            const distance = Math.hypot(dx, dy);
+
+            if (distance < ball.radius) {
+                const angle = Math.atan2(dy, dx);
+                
+                ball.x = xx + Math.cos(angle) * ball.radius;
+                ball.y = yy + Math.sin(angle) * ball.radius;
+
+                const normalX = Math.cos(angle);
+                const normalY = Math.sin(angle);
+                const dotProduct = ball.vx * normalX + ball.vy * normalY;
+                
+                const damping = isBoard ? 0.65 : 0.7;
+                ball.vx = (ball.vx - 2 * dotProduct * normalX) * damping;
+                ball.vy = (ball.vy - 2 * dotProduct * normalY) * damping;
+
+                if (isBoard) {
+                    ball.hitBackboard = true;
+                    sfx.playBackboard();
+                    createExplosion(xx, yy, '#cbd5e1', 6);
+                } else {
+                    ball.hitRim = true; 
+                    sfx.playRim();
+                    createExplosion(xx, yy, '#f59e0b', 8);
+                }
+                return true;
+            }
+            return false;
+        }
+
+        function triggerScoreNotification(isSwish) {
+            const alertBox = document.getElementById('combo-alert');
+            const text = document.getElementById('combo-text');
+            const subtext = document.getElementById('combo-subtext');
+
+            if (isSwish) {
+                text.innerText = "SWISH! 完美空心";
+                text.className = "text-3xl sm:text-4xl md:text-6xl font-black italic tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-emerald-400 to-yellow-300 drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)]";
+                subtext.innerText = "沒有碰到籃板與籃框！得分 +3";
+                swishCount++;
+            } else {
+                text.innerText = "NICE SHOT!";
+                text.className = "text-3xl sm:text-4xl md:text-6xl font-black italic tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-400 drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)]";
+                subtext.innerText = "得分 +2";
+            }
+
+            alertBox.classList.remove('hidden');
+            setTimeout(() => {
+                alertBox.classList.remove('scale-0');
+                alertBox.classList.add('scale-100');
+            }, 50);
+
+            setTimeout(() => {
+                alertBox.classList.remove('scale-100');
+                alertBox.classList.add('scale-0');
+                setTimeout(() => {
+                    alertBox.classList.add('hidden');
+                }, 300);
+            }, 1800);
+        }
+
+        function updatePhysics() {
+            if (ball.isDragging) return;
+
+            if (ball.isThrown) {
+                ball.trail.push({ x: ball.x, y: ball.y });
+                if (ball.trail.length > 15) ball.trail.shift();
+
+                ball.rotation += ball.vx / 25;
+                const prevY = ball.y; 
+
+                ball.vy += GRAVITY;
+                ball.x += ball.vx;
+                ball.y += ball.vy;
+
+                // 地板與牆壁邊界 (RWD 化)
+                if (ball.y + ball.radius > logicH - 40) {
+                    ball.y = logicH - 40 - ball.radius;
+                    ball.vy = -ball.vy * BOUNCE_DAMPING;
+                    ball.vx *= 0.90; 
+                    
+                    if (Math.abs(ball.vy) > 1.2) {
+                        sfx.playBounce();
+                        createExplosion(ball.x, ball.y + ball.radius, '#e2e8f0', 5);
+                    }
+                }
+
+                if (ball.x - ball.radius < 0) {
+                    ball.x = ball.radius;
+                    ball.vx = -ball.vx * BOUNCE_DAMPING;
+                    sfx.playBounce();
+                } else if (ball.x + ball.radius > logicW) {
+                    ball.x = logicW - ball.radius;
+                    ball.vx = -ball.vx * BOUNCE_DAMPING;
+                    sfx.playBounce();
+                }
+
+                checkSegmentCollision(hoop.boardX, hoop.boardY, hoop.boardX, hoop.boardY + hoop.boardH, true);
+                checkSegmentCollision(hoop.boardX, hoop.boardY, hoop.boardX + hoop.boardW, hoop.boardY, true);
+                checkSegmentCollision(hoop.boardX, hoop.boardY + hoop.boardH, hoop.boardX + hoop.boardW, hoop.boardY + hoop.boardH, true);
+
+                checkSegmentCollision(hoop.rimLeftX - hoop.rimRadius, hoop.y, hoop.rimLeftX + hoop.rimRadius, hoop.y, false);
+                checkSegmentCollision(hoop.rimRightX - hoop.rimRadius, hoop.y, hoop.rimRightX + hoop.rimRadius, hoop.y, false);
+
+                if (ball.y < hoop.y - 10) {
+                    ball.wasAboveRim = true;
+                }
+
+                if (ball.wasAboveRim && prevY <= hoop.y && ball.y > hoop.y && !ball.scoreCooldown) {
+                    if (ball.x > hoop.rimLeftX && ball.x < hoop.rimRightX) {
+                        const isSwish = !ball.hitRim && !ball.hitBackboard;
+                        const points = isSwish ? 3 : 2;
+
+                        score += points;
+                        document.getElementById('score-display').innerText = score;
+
+                        sfx.playScore();
+                        sfx.playSwish();
+
+                        createExplosion(hoop.x, hoop.y + 10, isSwish ? '#14b8a6' : '#f59e0b', 30, isSwish);
+                        triggerScoreNotification(isSwish);
+
+                        if (score > highScore) {
+                            highScore = score;
+                            localStorage.setItem('bball_high_score', highScore);
+                            document.getElementById('high-score').innerText = highScore;
+                        }
+
+                        ball.scoreCooldown = true;
+                    }
+                }
+
+                const velocity = Math.hypot(ball.vx, ball.vy);
+                const isOnGround = ball.y >= logicH - 40 - ball.radius - 2;
+
+                if ((isOnGround && velocity < 0.25) || (!isOnGround && velocity < 0.05)) {
+                    ball.vx = 0;
+                    ball.vy = 0;
+                    ball.isThrown = false;
+                    ball.wasAboveRim = false;
+                    ball.scoreCooldown = false;
+                    ball.isStopped = true;
+                    ball.trail = [];
+                    
+                    if (gameMode === 'distance') {
+                        resetToDefaultPosition();
+                    } else {
+                        updateLauncherToBall();
+                    }
+
+                    if (gameState === 'WAITING_END') {
+                        endGame();
+                    }
+                }
+
+                if (ball.y > logicH + 200 || ball.x < -150 || ball.x > logicW + 150) {
+                    resetToDefaultPosition();
+                    
+                    if (gameState === 'WAITING_END') {
+                        endGame();
+                    }
+                }
+            }
+        }
+
+        function drawScene() {
+            // RWD 核心：將畫布矩陣重置，套用真實像素與邏輯單位的變形矩陣
+            ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+            ctx.clearRect(0, 0, logicW, logicH);
+
+            const lightGrad = ctx.createRadialGradient(logicW / 2, 0, 50, logicW / 2, 0, logicH * 0.8);
+            lightGrad.addColorStop(0, 'rgba(30, 41, 59, 0.6)');
+            lightGrad.addColorStop(1, 'rgba(15, 23, 42, 0)');
+            ctx.fillStyle = lightGrad;
+            ctx.fillRect(0, 0, logicW, logicH);
+
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, logicH - 40, logicW, 40);
+            
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, logicH - 40);
+            ctx.lineTo(logicW, logicH - 40);
+            ctx.stroke();
+
+            ctx.strokeStyle = 'rgba(71, 85, 105, 0.3)';
+            ctx.beginPath();
+            ctx.arc(hoop.boardX, logicH - 40, 300, Math.PI, Math.PI * 1.5);
+            ctx.stroke();
+
+            if (ball.isDragging) {
+                ctx.beginPath();
+                ctx.moveTo(launcher.x, launcher.y);
+                ctx.lineTo(ball.x, ball.y);
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(launcher.x, launcher.y, 8, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(245, 158, 11, 0.8)';
+                ctx.fill();
+            } else if (ball.isStopped) {
+                const pulse = Math.sin(Date.now() / 200) * 4;
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ball.radius + 6 + pulse, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(249, 115, 22, 0.15)';
+                ctx.fill();
+            }
+
+            drawTrajectory();
+
+            ctx.fillStyle = '#475569';
+            ctx.fillRect(hoop.boardX + (hoop.boardW/2), hoop.boardY + hoop.boardH, hoop.boardW, logicH - (hoop.boardY + hoop.boardH) - 40);
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.strokeStyle = '#f8fafc';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.roundRect(hoop.boardX, hoop.boardY, hoop.boardW, hoop.boardH, 4);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(hoop.boardX, hoop.boardY + hoop.boardH * 0.4, hoop.boardW, hoop.boardH * 0.35);
+
+            if (ball.isThrown && ball.trail.length > 1) {
+                ctx.save();
+                for (let i = 1; i < ball.trail.length; i++) {
+                    const p1 = ball.trail[i - 1];
+                    const p2 = ball.trail[i];
+                    const alpha = i / ball.trail.length * 0.45;
+                    ctx.strokeStyle = `rgba(249, 115, 22, ${alpha})`;
+                    ctx.lineWidth = ball.radius * (i / ball.trail.length) * 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            ctx.save();
+            ctx.translate(ball.x, ball.y);
+            ctx.rotate(ball.rotation);
+
+            const ballGlow = ctx.createRadialGradient(0, 0, 5, 0, 0, ball.radius);
+            ballGlow.addColorStop(0, '#f97316');
+            ballGlow.addColorStop(0.8, '#ea580c');
+            ballGlow.addColorStop(1, '#9a3412');
+            ctx.fillStyle = ballGlow;
+
+            ctx.beginPath();
+            ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = '#1e1b4b';
+            ctx.lineWidth = 1.8;
+            
+            ctx.beginPath();
+            ctx.moveTo(-ball.radius, 0);
+            ctx.lineTo(ball.radius, 0);
+            ctx.moveTo(0, -ball.radius);
+            ctx.lineTo(0, ball.radius);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(-ball.radius * 1.1, 0, ball.radius * 0.8, -Math.PI / 3, Math.PI / 3);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.arc(ball.radius * 1.1, 0, ball.radius * 0.8, Math.PI * 2/3, Math.PI * 4/3);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.restore();
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = 2.5;
+            
+            for (let i = 0; i < netNodes.length - 1; i++) {
+                const n1 = netNodes[i];
+                const n2 = netNodes[i + 1];
+                const midX = (n1.x + n2.x) / 2 + (n1.vx + n2.vx) * 0.5;
+                const bottomY = hoop.netY + (n1.vy + n2.vy) * 0.5;
+
+                ctx.beginPath();
+                ctx.moveTo(n1.x, n1.y);
+                ctx.lineTo(midX, bottomY);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(n2.x, n2.y);
+                ctx.lineTo(midX, bottomY);
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = '#ff4500';
+            ctx.lineWidth = Math.max(3, 5 * (logicW/1000));
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(hoop.rimLeftX, hoop.y);
+            ctx.lineTo(hoop.rimRightX, hoop.y);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ff4500';
+            ctx.beginPath();
+            ctx.arc(hoop.rimLeftX, hoop.y, hoop.rimRadius, 0, Math.PI * 2);
+            ctx.arc(hoop.rimRightX, hoop.y, hoop.rimRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            updateAndDrawParticles();
+        }
+
+        function gameLoop(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            const elapsed = timestamp - lastTime;
+            lastTime = timestamp;
+
+            if (gameState === 'PLAYING' || gameState === 'WAITING_END') {
+                updatePhysics();
+                updateNet();
+            }
+
+            drawScene();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 映射滑鼠與觸控事件至邏輯座標
+        function getEventPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            return {
+                x: (clientX - rect.left) * (logicW / rect.width),
+                y: (clientY - rect.top) * (logicH / rect.height)
+            };
+        }
+
+        function handleStart(e) {
+            if (e.cancelable) e.preventDefault(); // 防止手機預設滑動操作
+            if (gameState !== 'PLAYING' || !ball.isStopped) return; 
+            
+            const pos = getEventPos(e);
+            
+            inputState.isDragging = true;
+            inputState.startX = pos.x;
+            inputState.startY = pos.y;
+            inputState.currentX = pos.x;
+            inputState.currentY = pos.y;
+
+            ball.isDragging = true;
+            ball.isStopped = false; 
+            
+            document.getElementById('drag-hint').classList.add('hidden');
+        }
+
+        function handleMove(e) {
+            if (!inputState.isDragging) return;
+            if (e.cancelable) e.preventDefault();
+
+            const pos = getEventPos(e);
+            inputState.currentX = pos.x;
+            inputState.currentY = pos.y;
+            
+            const dx = inputState.currentX - inputState.startX;
+            const dy = inputState.currentY - inputState.startY;
+            
+            const visualDist = Math.hypot(dx, dy);
+            const visualMaxDrag = logicW * 0.15; // RWD 視覺最大拉伸長度
+
+            if (visualDist > visualMaxDrag) {
+                const angle = Math.atan2(dy, dx);
+                ball.x = launcher.x + Math.cos(angle) * visualMaxDrag;
+                ball.y = launcher.y + Math.sin(angle) * visualMaxDrag;
+            } else {
+                ball.x = launcher.x + dx;
+                ball.y = launcher.y + dy;
+            }
+        }
+
+        function handleEnd() {
+            if (!inputState.isDragging) return;
+            inputState.isDragging = false;
+            ball.isDragging = false;
+
+            const params = calculateLaunchParams();
+
+            if (params.dist > 15) { 
+                ball.x = launcher.x;
+                ball.y = launcher.y;
+                ball.vx = params.vx;
+                ball.vy = params.vy;
+                ball.isThrown = true;
+                
+                ball.hitRim = false;
+                ball.hitBackboard = false;
+
+                sfx.playBounce();
+                createExplosion(ball.x, ball.y, 'rgba(249, 115, 22, 0.8)', 10);
+            } else {
+                ball.x = launcher.x;
+                ball.y = launcher.y;
+                ball.isStopped = true;
+            }
+        }
+
+        // 綁定事件並包含 passive: false 來確保 e.preventDefault() 能執行
+        canvas.addEventListener('mousedown', handleStart);
+        window.addEventListener('mousemove', handleMove, { passive: false });
+        window.addEventListener('mouseup', handleEnd);
+
+        canvas.addEventListener('touchstart', handleStart, { passive: false });
+        window.addEventListener('touchmove', handleMove, { passive: false });
+        window.addEventListener('touchend', handleEnd);
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function changeMode(mode) {
+            gameMode = mode;
+            
+            const btnClassic = document.getElementById('btn-mode-classic');
+            const btnDistance = document.getElementById('btn-mode-distance');
+            const btnPractice = document.getElementById('btn-mode-practice');
+            const btnHard = document.getElementById('btn-mode-hard');
+
+            [btnClassic, btnDistance, btnPractice, btnHard].forEach(b => {
+                b.className = "w-full md:w-auto px-3 py-2 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition duration-200 bg-gray-800 text-gray-300 hover:bg-gray-700";
+            });
+
+            const activeBtn = document.getElementById(`btn-mode-${mode}`);
+            if (mode === 'hard') {
+                activeBtn.className = "w-full md:w-auto px-3 py-2 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition duration-200 bg-red-600 text-white shadow-lg shadow-red-500/20";
+            } else {
+                activeBtn.className = "w-full md:w-auto px-3 py-2 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition duration-200 bg-orange-500 text-white shadow-lg shadow-orange-500/20";
+            }
+
+            const timerContainer = document.getElementById('timer-container');
+            if (mode === 'practice') {
+                timerContainer.style.opacity = '0.3';
+                document.getElementById('timer-display').innerText = "∞";
+                clearInterval(timerInterval);
+            } else {
+                timerContainer.style.opacity = '1';
+                if (gameState === 'PLAYING') {
+                    startTimer();
+                } else {
+                    document.getElementById('timer-display').innerText = "60s";
+                }
+            }
+
+            resetToDefaultPosition();
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            if (gameMode === 'practice') return;
+
+            timeLeft = 60;
+            document.getElementById('timer-display').innerText = `${timeLeft}s`;
+            
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                document.getElementById('timer-display').innerText = `${timeLeft}s`;
+
+                if (timeLeft <= 10) {
+                    document.getElementById('timer-display').classList.add('text-red-500');
+                    document.getElementById('timer-display').classList.remove('text-emerald-400');
+                } else {
+                    document.getElementById('timer-display').classList.add('text-emerald-400');
+                    document.getElementById('timer-display').classList.remove('text-red-500');
+                }
+
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    if (!ball.isStopped) {
+                        gameState = 'WAITING_END'; 
+                    } else {
+                        endGame();
+                    }
+                }
+            }, 1000);
+        }
+
+        function startGame() {
+            sfx.init();
+            gameState = 'PLAYING';
+            score = 0;
+            swishCount = 0;
+            document.getElementById('score-display').innerText = '0';
+            document.getElementById('modal-screen').classList.add('hidden');
+            document.getElementById('drag-hint').classList.remove('hidden');
+
+            setupHoopLayout();
+            resetToDefaultPosition();
+            startTimer();
+        }
+
+        function endGame() {
+            gameState = 'GAMEOVER';
+            clearInterval(timerInterval);
+
+            document.getElementById('modal-title').innerText = "時間到！";
+            document.getElementById('modal-desc').innerText = "無死角蓄力版讓您的全場三分球如魚得水！來看看您的分數：";
+            document.getElementById('result-score').innerText = score;
+            document.getElementById('result-swish').innerText = swishCount;
+            document.getElementById('game-results').classList.remove('hidden');
+            document.getElementById('btn-start').innerText = "再次挑戰";
+            document.getElementById('modal-screen').classList.remove('hidden');
+        }
+
+        document.getElementById('btn-start').addEventListener('click', startGame);
+        document.getElementById('btn-restart').addEventListener('click', () => {
+            clearInterval(timerInterval);
+            startGame();
+        });
+
+        document.getElementById('btn-mode-classic').addEventListener('click', () => changeMode('classic'));
+        document.getElementById('btn-mode-distance').addEventListener('click', () => changeMode('distance'));
+        document.getElementById('btn-mode-practice').addEventListener('click', () => changeMode('practice'));
+        document.getElementById('btn-mode-hard').addEventListener('click', () => changeMode('hard'));
+
+        document.getElementById('btn-mute').addEventListener('click', () => {
+            sfx.muted = !sfx.muted;
+            const icon = document.getElementById('mute-icon');
+            if (sfx.muted) {
+                icon.className = "fa-solid fa-volume-xmark text-red-500";
+            } else {
+                icon.className = "fa-solid fa-volume-high";
+            }
+        });
+
+        resizeCanvas();
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
